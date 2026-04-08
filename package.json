@@ -1,0 +1,45 @@
+{
+  "name": "adwinner-intel-apify",
+  "version": "1.0.0",
+  "description": "Apify Actor for competitive ad intelligence — longevity-based profitability scoring + Gemini creative analysis across Meta and TikTok",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "apify",
+    "actor",
+    "ad-intelligence",
+    "facebook-ads",
+    "tiktok-ads",
+    "marketing",
+    "competitive-analysis",
+    "meta-ad-library",
+    "gemini-ai"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "apify": "^3.0.0",
+    "apify-client": "^2.9.0",
+    "dotenv": "^17.2.3",
+    "express": "^4.22.1",
+    "ioredis": "^5.4.0",
+    "node-appwrite": "^22.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.25",
+    "@types/node": "^22.19.8",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

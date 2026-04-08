@@ -1,0 +1,151 @@
+{
+    "title": "AdWinner Intel - Competitive Ad Intelligence",
+    "description": "Find proven winning ads across Meta Ad Library and TikTok. Longevity-based profitability scoring + Gemini AI creative analysis.",
+    "type": "object",
+    "schemaVersion": 1,
+    "required": ["action"],
+    "properties": {
+        "action": {
+            "title": "Action",
+            "description": "Which analysis to run.",
+            "type": "string",
+            "editor": "select",
+            "default": "analyze_domain_winners",
+            "enum": [
+                "analyze_domain_winners",
+                "extract_marketing_hooks",
+                "get_trend_report",
+                "ad_profitability_score",
+                "get_raw_fb_ads",
+                "get_raw_tiktok_ads"
+            ],
+            "enumTitles": [
+                "Analyze Domain Winners — find proven ads for a domain",
+                "Extract Marketing Hooks — AI-analyze a single creative",
+                "Get Trend Report — trending ads in a niche (TikTok)",
+                "Ad Profitability Score — score an individual ad",
+                "Get Raw FB Ads — raw Meta Ad Library data",
+                "Get Raw TikTok Ads — raw TikTok content data"
+            ]
+        },
+        "domain": {
+            "title": "Domain",
+            "description": "Advertiser domain to analyze (e.g., \"glossier.com\", \"huel.com\"). Used by: analyze_domain_winners, get_raw_fb_ads.",
+            "type": "string",
+            "editor": "textfield",
+            "prefill": "glossier.com",
+            "sectionCaption": "Domain Analysis",
+            "sectionDescription": "Parameters for analyze_domain_winners and get_raw_fb_ads"
+        },
+        "platform": {
+            "title": "Platform(s)",
+            "description": "Which ad platform(s) to search. Used by: analyze_domain_winners.",
+            "type": "string",
+            "editor": "select",
+            "default": "all",
+            "enum": ["facebook", "tiktok", "all"],
+            "enumTitles": ["Facebook / Instagram (Meta)", "TikTok", "Both platforms"]
+        },
+        "minLongevityDays": {
+            "title": "Min Longevity Days",
+            "description": "Minimum days an ad must be running to qualify as a 'winner'. Higher = stricter filter. Used by: analyze_domain_winners.",
+            "type": "integer",
+            "default": 14,
+            "minimum": 0,
+            "maximum": 365
+        },
+        "includeAnalysis": {
+            "title": "Include AI Creative Analysis",
+            "description": "Run Gemini AI vision analysis on top ads (extracts hooks, pain points, emotional triggers). Adds latency and cost. Used by: analyze_domain_winners.",
+            "type": "boolean",
+            "default": true
+        },
+        "maxResults": {
+            "title": "Max Results",
+            "description": "Maximum number of ads to return (per platform for analyze_domain_winners). Used by: all actions.",
+            "type": "integer",
+            "default": 3,
+            "minimum": 1,
+            "maximum": 10
+        },
+        "country": {
+            "title": "Country",
+            "description": "ISO country code for ad targeting (e.g., \"US\", \"GB\", \"BR\"). Used by: analyze_domain_winners, get_raw_fb_ads.",
+            "type": "string",
+            "editor": "textfield",
+            "default": "US"
+        },
+        "creativeUrl": {
+            "title": "Creative URL",
+            "description": "Direct URL to a video or image ad creative to analyze. Used by: extract_marketing_hooks.",
+            "type": "string",
+            "editor": "textfield",
+            "sectionCaption": "Creative Analysis",
+            "sectionDescription": "Parameters for extract_marketing_hooks"
+        },
+        "advertiserName": {
+            "title": "Advertiser Name",
+            "description": "Advertiser name for context (optional). Used by: extract_marketing_hooks.",
+            "type": "string",
+            "editor": "textfield"
+        },
+        "industry": {
+            "title": "Industry",
+            "description": "Industry for context (optional). Used by: extract_marketing_hooks.",
+            "type": "string",
+            "editor": "textfield"
+        },
+        "keyword": {
+            "title": "Keyword",
+            "description": "Industry or product keyword (e.g., \"skincare\", \"fitness app\"). Used by: get_trend_report, get_raw_tiktok_ads.",
+            "type": "string",
+            "editor": "textfield",
+            "prefill": "skincare",
+            "sectionCaption": "Trend / TikTok Search",
+            "sectionDescription": "Parameters for get_trend_report and get_raw_tiktok_ads"
+        },
+        "region": {
+            "title": "TikTok Region",
+            "description": "TikTok region for trend/content search. Used by: get_trend_report, get_raw_tiktok_ads.",
+            "type": "string",
+            "editor": "select",
+            "default": "US",
+            "enum": ["US", "GB", "DE", "FR", "AU", "CA", "BR", "JP"],
+            "enumTitles": ["United States", "United Kingdom", "Germany", "France", "Australia", "Canada", "Brazil", "Japan"]
+        },
+        "timeRange": {
+            "title": "Time Range",
+            "description": "Time range for trend data. Used by: get_trend_report.",
+            "type": "string",
+            "editor": "select",
+            "default": "7d",
+            "enum": ["7d", "30d"],
+            "enumTitles": ["Last 7 days", "Last 30 days"]
+        },
+        "startDate": {
+            "title": "Ad Start Date",
+            "description": "When the ad started running (ISO date, e.g., \"2025-06-01\"). Used by: ad_profitability_score.",
+            "type": "string",
+            "editor": "textfield",
+            "sectionCaption": "Profitability Scoring",
+            "sectionDescription": "Parameters for ad_profitability_score"
+        },
+        "impressionsLower": {
+            "title": "Impressions Lower Bound",
+            "description": "Lower bound of impression range. Used by: ad_profitability_score.",
+            "type": "integer"
+        },
+        "impressionsUpper": {
+            "title": "Impressions Upper Bound",
+            "description": "Upper bound of impression range. Used by: ad_profitability_score.",
+            "type": "integer"
+        },
+        "platforms": {
+            "title": "Platforms (for scoring)",
+            "description": "Platforms where the ad is running (for cross-platform scoring). Used by: ad_profitability_score.",
+            "type": "array",
+            "editor": "stringList",
+            "items": { "type": "string" }
+        }
+    }
+}

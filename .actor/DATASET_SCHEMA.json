@@ -1,0 +1,43 @@
+{
+    "actorSpecification": 1,
+    "fields": {},
+    "views": {
+        "overview": {
+            "title": "Overview",
+            "transformation": {
+                "fields": [
+                    "success",
+                    "domain",
+                    "keyword",
+                    "action",
+                    "timestamp"
+                ]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "success": {
+                        "label": "Success",
+                        "format": "boolean"
+                    },
+                    "domain": {
+                        "label": "Domain",
+                        "format": "text"
+                    },
+                    "keyword": {
+                        "label": "Keyword",
+                        "format": "text"
+                    },
+                    "action": {
+                        "label": "Action",
+                        "format": "text"
+                    },
+                    "timestamp": {
+                        "label": "Timestamp",
+                        "format": "text"
+                    }
+                }
+            }
+        }
+    }
+}
