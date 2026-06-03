@@ -72,7 +72,9 @@ const TIKTOK_ANALYSIS_SECONDS = Number(process.env.TIKTOK_ANALYSIS_SECONDS || '1
 const TIKTOK_MAX_VIDEO_MB = Number(process.env.TIKTOK_MAX_VIDEO_MB || '25');
 const TIKTOK_VIDEO_RANGE_BYTES = Number(process.env.TIKTOK_VIDEO_RANGE_BYTES || '0');
 const GEMINI_MEDIA_FETCH_TIMEOUT_MS = Number(process.env.GEMINI_MEDIA_FETCH_TIMEOUT_MS || '9000');
-const GEMINI_GENERATION_TIMEOUT_MS = Number(process.env.GEMINI_GENERATION_TIMEOUT_MS || '18000');
+// 30s (not 18s): gemini-2.5-flash's thinking + full-JSON video analysis can take
+// >18s, which caused occasional "generation_timeout" fallbacks. Env-overridable.
+const GEMINI_GENERATION_TIMEOUT_MS = Number(process.env.GEMINI_GENERATION_TIMEOUT_MS || '30000');
 const CACHE_TIKTOK_VIDEO_COPY = (process.env.CACHE_TIKTOK_VIDEO_COPY || 'false').toLowerCase() === 'true';
 const TIKTOK_MAX_VIDEO_BYTES = Number.isFinite(TIKTOK_MAX_VIDEO_MB) && TIKTOK_MAX_VIDEO_MB > 0
   ? Math.floor(TIKTOK_MAX_VIDEO_MB * 1024 * 1024)

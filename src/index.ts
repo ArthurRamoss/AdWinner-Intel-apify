@@ -2141,12 +2141,13 @@ async function main() {
 
   await ensureDatabase().catch(e => console.warn('[Actor] Appwrite DB init skipped:', e.message));
 
-  // Authoritative standby detection: the platform sets APIFY_META_ORIGIN=STANDBY
-  // when the Actor is invoked via its Standby URL (this also covers local
-  // `apify run --standby`). Fall back to the legacy ACTOR_STANDBY_PORT heuristic.
-  const isStandby =
-    process.env.APIFY_META_ORIGIN === 'STANDBY'
-    || (Actor.isAtHome() && !!process.env.ACTOR_STANDBY_PORT);
+  // Authoritative standby detection (per Apify docs): the platform sets
+  // APIFY_META_ORIGIN=STANDBY ONLY for Standby HTTP requests. We must NOT also key
+  // off ACTOR_STANDBY_PORT — when usesStandbyMode is enabled that env var is present
+  // for EVERY run (including "Start"/API/scheduled batch runs), so keying off it
+  // makes those runs boot the HTTP server instead of running the requested action.
+  // For local Standby testing, set APIFY_META_ORIGIN=STANDBY manually.
+  const isStandby = process.env.APIFY_META_ORIGIN === 'STANDBY';
 
   if (isStandby) {
     await runStandbyServer();
