@@ -269,8 +269,12 @@ Be specific and actionable. A marketer should be able to replicate this ad's suc
 // CONSTANTS
 // =============================================================================
 
-/** Maximum video duration to analyze (seconds) */
-export const MAX_ANALYSIS_DURATION_SECONDS = 10;
+/**
+ * Video window analyzed for the hook (seconds). The decisive hook is the first
+ * ~3s, but ~15s captures the hook plus the transition into the offer/CTA, which
+ * is where most short-form ads (15-34s) make their pitch.
+ */
+export const MAX_ANALYSIS_DURATION_SECONDS = 15;
 
 /** Gemini 2.5 Flash pricing (as of 2025) */
 export const GEMINI_PRICING = {

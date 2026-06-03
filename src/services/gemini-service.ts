@@ -64,8 +64,11 @@ const genAI = new GoogleGenerativeAI(GEMINI_API_KEY || '');
  * Default uses a stable Gemini API model. Override via GEMINI_MODEL env.
  */
 const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
-const TIKTOK_ANALYSIS_MODE = (process.env.TIKTOK_ANALYSIS_MODE || 'thumbnail').toLowerCase();
-const TIKTOK_ANALYSIS_SECONDS = Number(process.env.TIKTOK_ANALYSIS_SECONDS || '5');
+// Analyze the actual VIDEO by default (not just the static thumbnail). The hook
+// lives in the motion + audio of the first seconds, which a thumbnail misses.
+// Override with TIKTOK_ANALYSIS_MODE=thumbnail for the cheaper/faster path.
+const TIKTOK_ANALYSIS_MODE = (process.env.TIKTOK_ANALYSIS_MODE || 'video').toLowerCase();
+const TIKTOK_ANALYSIS_SECONDS = Number(process.env.TIKTOK_ANALYSIS_SECONDS || '15');
 const TIKTOK_MAX_VIDEO_MB = Number(process.env.TIKTOK_MAX_VIDEO_MB || '25');
 const TIKTOK_VIDEO_RANGE_BYTES = Number(process.env.TIKTOK_VIDEO_RANGE_BYTES || '0');
 const GEMINI_MEDIA_FETCH_TIMEOUT_MS = Number(process.env.GEMINI_MEDIA_FETCH_TIMEOUT_MS || '9000');
@@ -74,6 +77,17 @@ const CACHE_TIKTOK_VIDEO_COPY = (process.env.CACHE_TIKTOK_VIDEO_COPY || 'false')
 const TIKTOK_MAX_VIDEO_BYTES = Number.isFinite(TIKTOK_MAX_VIDEO_MB) && TIKTOK_MAX_VIDEO_MB > 0
   ? Math.floor(TIKTOK_MAX_VIDEO_MB * 1024 * 1024)
   : 25 * 1024 * 1024;
+
+// Browser-like headers for media fetches. TikTok (and some Meta) CDNs return 403
+// to "headless" requests with no User-Agent/Referer — sending these makes the
+// server-side download succeed so we can analyze the real video, not a thumbnail.
+const MEDIA_FETCH_HEADERS: Record<string, string> = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  Accept: 'video/webm,video/mp4,image/avif,image/webp,image/*,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  Referer: 'https://www.tiktok.com/',
+};
 
 /**
  * Safety settings - relaxed for ad analysis
@@ -369,7 +383,13 @@ function buildAnalysisPrompt(ad: AdEntity, analysisSeconds: number): string {
   return `${GEMINI_ANALYSIS_PROMPT}${contextSection}
 
 IMPORTANT:
-- For video, analyze ONLY the first ${analysisSeconds} seconds
+- For video, focus on the first ${analysisSeconds} seconds (the part that decides performance).
+- THE FIRST 3 SECONDS ARE THE HOOK and matter most: ~70% of viewers decide to keep
+  watching or scroll away within those 3s, and the vast majority of high-performing
+  ads land their hook there. Describe the hook (visual + audio + on-screen text) in
+  detail, then explain how it transitions into the pain point, value prop, and CTA
+  across the rest of the window.
+- "hook.effectiveness" should reflect how strongly those first 3 seconds stop the scroll.
 - Return valid JSON matching the GeminiAnalysis schema
 - Be specific and actionable in your analysis
 
@@ -483,7 +503,7 @@ async function fetchBinaryWithLimit(
   maxBytes: number,
   rangeBytes: number
 ): Promise<{ buffer: Buffer; contentType: string | null }> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...MEDIA_FETCH_HEADERS };
   if (rangeBytes > 0) {
     headers.Range = `bytes=0-${rangeBytes - 1}`;
   }
@@ -965,6 +985,7 @@ export async function analyzeAdCreative(ad: AdEntity): Promise<GeminiAnalysisRes
 async function fetchInlineMedia(url: string): Promise<{ data: string; mimeType: string }> {
   try {
     const response = await fetch(url, {
+      headers: MEDIA_FETCH_HEADERS,
       signal: AbortSignal.timeout(GEMINI_MEDIA_FETCH_TIMEOUT_MS),
     });
     if (!response.ok) {
