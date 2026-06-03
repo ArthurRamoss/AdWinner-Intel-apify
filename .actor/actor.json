@@ -4,7 +4,7 @@
     "version": "1.0",
     "buildTag": "latest",
     "minMemoryMbytes": 512,
-    "maxMemoryMbytes": 4096,
+    "maxMemoryMbytes": 2048,
     "usesStandbyMode": true,
     "dockerfile": "../Dockerfile",
     "readme": "./ACTOR.md",
