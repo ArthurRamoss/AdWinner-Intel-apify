@@ -34,12 +34,16 @@ import { cacheCreativeInAppwrite } from './appwrite-service.js';
 // CONFIGURATION
 // =============================================================================
 
-const APIFY_TOKEN = process.env.APIFY_TOKEN;
+// Token used for the downstream Facebook/TikTok scraper Actor calls. Prefer the
+// dedicated SCRAPER_APIFY_TOKEN — this lets you bill scraping to a specific
+// account (e.g. a separate plan), independent of the platform-injected
+// APIFY_TOKEN. Falls back to APIFY_TOKEN (the auto-injected run token).
+const APIFY_TOKEN = process.env.SCRAPER_APIFY_TOKEN || process.env.APIFY_TOKEN;
 const ENABLE_LOCAL_DEBUG_INGEST = (process.env.LOCAL_DEBUG_INGEST || 'false').toLowerCase() === 'true';
 const DEBUG_INGEST_URL = 'http://127.0.0.1:7242/ingest/021c6cac-9468-4b3d-a3a1-d3ca8f90d110';
 
 if (!APIFY_TOKEN) {
-  console.warn('[ApifyService] APIFY_TOKEN not set - scraping will fail');
+  console.warn('[ApifyService] No SCRAPER_APIFY_TOKEN or APIFY_TOKEN set - scraping will fail');
 }
 
 const apifyClient = new ApifyClient({ token: APIFY_TOKEN });
