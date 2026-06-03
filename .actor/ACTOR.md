@@ -78,7 +78,40 @@ Fetch raw TikTok content data with engagement metrics, hashtags, and creator met
 
 ## Standby mode (HTTP API)
 
-This Actor supports standby mode for low-latency HTTP access. Send a POST request to the standby URL:
+This Actor also runs in **Standby mode** — a persistent HTTP server for low-latency, pay-per-call access. Each tool is exposed as its own `POST` route, and `GET /tools` lists them.
+
+**Discover the available tools:**
+
+```bash
+curl https://<standby-url>/tools
+```
+
+**Call a tool directly (one route per tool):**
+
+```bash
+# Find winning ads for a domain
+curl -X POST https://<standby-url>/analyze_domain_winners \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "huel.com", "platform": "all", "minLongevityDays": 14}'
+
+# Score a single ad (pure compute, no external fetch)
+curl -X POST https://<standby-url>/ad_profitability_score \
+  -H "Content-Type: application/json" \
+  -d '{"startDate": "2025-01-01", "impressionsLower": 100000, "platforms": ["facebook", "tiktok"]}'
+```
+
+| Route | Tool |
+|---|---|
+| `POST /analyze_domain_winners` | Find proven winning ads for a domain |
+| `POST /get_trend_report` | Trending ad formats/angles for a niche |
+| `POST /extract_marketing_hooks` | AI hook analysis of one creative URL |
+| `POST /get_raw_fb_ads` | Raw Meta Ad Library passthrough |
+| `POST /get_raw_tiktok_ads` | Raw TikTok keyword-search passthrough |
+| `POST /ad_profitability_score` | Score a single ad (0-100) |
+| `GET /tools` | Discovery: list tools, routes, and prices |
+| `GET /health` | Health check |
+
+A backward-compatible dispatcher is also available — `POST /` with an `"action"` field:
 
 ```bash
 curl -X POST https://<standby-url>/ \
@@ -100,7 +133,18 @@ curl -X POST https://<standby-url>/ \
 
 ## Pricing
 
-This Actor uses **pay-per-event** pricing. You are charged per successful analysis completed. See the pricing tab for details.
+This Actor uses **pay-per-event** pricing — you are charged once per tool call, with cheaper discovery tools and pricier synthesis tools. Configure these event names under **Settings → Monetization → Pay-per-event** (they match the names returned by `GET /tools`):
+
+| Tool | Event name | Suggested price (USD) |
+|---|---|---|
+| `analyze_domain_winners` | `tool-analyze-domain-winners` | $0.10 |
+| `get_trend_report` | `tool-trend-report` | $0.07 |
+| `extract_marketing_hooks` | `tool-extract-marketing-hooks` | $0.05 |
+| `get_raw_fb_ads` | `tool-raw-fb-ads` | $0.03 |
+| `get_raw_tiktok_ads` | `tool-raw-tiktok-ads` | $0.03 |
+| `ad_profitability_score` | `tool-profitability-score` | $0.01 |
+
+> The event names above are defined in `TOOL_REGISTRY` (`src/index.ts`) and billed via `Actor.charge()` on every call. They must be created verbatim in the Console for charging to take effect.
 
 ## Output
 

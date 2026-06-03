@@ -11,7 +11,7 @@
 import 'dotenv/config';
 
 import { Actor } from 'apify';
-import express, { type Request, type Response } from 'express';
+import express, { type Request, type Response, type NextFunction } from 'express';
 
 type CallToolResult = {
   content: Array<{ type: string; text: string }>;
@@ -1798,6 +1798,77 @@ function extractCommonHooks(ads: AdEntity[]): string[] {
 }
 
 // =============================================================================
+// TOOL REGISTRY
+// Single source of truth for the Standby HTTP surface: one REST route per
+// former MCP tool, the pay-per-event event name billed per call, and an
+// indicative price surfaced via GET /tools. Configure these event names in
+// Apify Console → Settings → Monetization → Pay-per-event to charge.
+// =============================================================================
+
+interface ToolDefinition {
+  /** Canonical action name — matches routeAction() and the input_schema enum. */
+  action: string;
+  /** REST path exposed in Standby mode (POST). */
+  path: string;
+  /** Pay-per-event event name billed once per successful call. */
+  eventName: string;
+  /** Indicative USD price, surfaced in the /tools discovery response. */
+  price: number;
+  /** Short human-readable description. */
+  description: string;
+}
+
+const TOOL_REGISTRY: ToolDefinition[] = [
+  {
+    action: 'analyze_domain_winners',
+    path: '/analyze_domain_winners',
+    eventName: 'tool-analyze-domain-winners',
+    price: 0.1,
+    description: 'Find proven winning ads for a domain across Meta + TikTok (synthesis + optional AI analysis).',
+  },
+  {
+    action: 'get_trend_report',
+    path: '/get_trend_report',
+    eventName: 'tool-trend-report',
+    price: 0.07,
+    description: 'Discover trending ad formats, angles, and hooks for a niche keyword (TikTok).',
+  },
+  {
+    action: 'extract_marketing_hooks',
+    path: '/extract_marketing_hooks',
+    eventName: 'tool-extract-marketing-hooks',
+    price: 0.05,
+    description: 'AI hook / pain-point / emotional-trigger analysis of a single creative URL.',
+  },
+  {
+    action: 'get_raw_fb_ads',
+    path: '/get_raw_fb_ads',
+    eventName: 'tool-raw-fb-ads',
+    price: 0.03,
+    description: 'Raw Meta Ad Library passthrough for a domain or keyword.',
+  },
+  {
+    action: 'get_raw_tiktok_ads',
+    path: '/get_raw_tiktok_ads',
+    eventName: 'tool-raw-tiktok-ads',
+    price: 0.03,
+    description: 'Raw TikTok keyword-search passthrough with engagement metadata.',
+  },
+  {
+    action: 'ad_profitability_score',
+    path: '/ad_profitability_score',
+    eventName: 'tool-profitability-score',
+    price: 0.01,
+    description: 'Compute a 0-100 profitability score for one ad (pure compute, no external fetch).',
+  },
+];
+
+/** action → pay-per-event event name, derived from TOOL_REGISTRY. */
+const EVENT_NAME_BY_ACTION: Record<string, string> = Object.fromEntries(
+  TOOL_REGISTRY.map((tool) => [tool.action, tool.eventName]),
+);
+
+// =============================================================================
 // ACTION ROUTING
 // =============================================================================
 
@@ -1884,74 +1955,180 @@ function mapInputToHandlerArgs(action: string, input: Record<string, unknown>): 
 // ACTOR LIFECYCLE
 // =============================================================================
 
+/**
+ * Standby mode: a persistent HTTP server exposing one POST route per tool, a
+ * GET /tools discovery endpoint, and the readiness probe. The process stays
+ * alive and the platform's idle timeout handles shutdown — never call
+ * Actor.exit() here, it would kill the server.
+ */
+async function runStandbyServer(): Promise<void> {
+  const app = express();
+
+  // ── Readiness probe (gotcha #1) ──
+  // The platform sends GET / with this header to verify the server is alive.
+  // It MUST be answered with 200 immediately — before body parsing and routing
+  // — or the Actor is marked unhealthy and recycled.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.headers['x-apify-container-server-readiness-probe']) {
+      res.status(200).send('ok');
+      return;
+    }
+    next();
+  });
+
+  // Permissive CORS so browser front-ends can call the Actor directly.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
+
+  app.use(express.json({ limit: '2mb' }));
+
+  // Run a tool, persist the result, charge its pay-per-event, and return JSON.
+  const runTool = async (
+    action: string,
+    params: Record<string, unknown>,
+    res: Response,
+  ): Promise<void> => {
+    try {
+      const result = await routeAction(action, params);
+      const data = extractResult(result);
+      await Actor.pushData({ ...data, action });
+      // Charge once per call. Wrapped so an unconfigured event (e.g. local dev,
+      // or before monetization is set up in the Console) never fails the request.
+      try {
+        await Actor.charge({ eventName: EVENT_NAME_BY_ACTION[action] ?? 'analysis-completed' });
+      } catch { /* charging not configured — ignore */ }
+      res.json(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[Actor] Standby action "${action}" failed:`, message);
+      res.status(500).json({ error: message });
+    }
+  };
+
+  // ── Tool discovery ──
+  app.get('/tools', (_req: Request, res: Response) => {
+    res.json({
+      service: 'adwinner-intel',
+      mode: 'standby',
+      tools: TOOL_REGISTRY.map((tool) => ({
+        name: tool.action,
+        method: 'POST',
+        path: tool.path,
+        price: tool.price,
+        eventName: tool.eventName,
+        description: tool.description,
+      })),
+    });
+  });
+
+  // ── One POST route per tool ──
+  for (const tool of TOOL_REGISTRY) {
+    app.post(tool.path, async (req: Request, res: Response) => {
+      await runTool(tool.action, (req.body ?? {}) as Record<string, unknown>, res);
+    });
+  }
+
+  // ── Backward-compatible dispatcher: POST / { action, ...params } ──
+  app.post('/', async (req: Request, res: Response) => {
+    const { action, ...params } = (req.body ?? {}) as Record<string, unknown>;
+    if (!action || typeof action !== 'string') {
+      res.status(400).json({
+        error: 'Missing or invalid "action" field. POST to a tool path (see GET /tools) or include {"action": "..."}.',
+      });
+      return;
+    }
+    await runTool(action, params, res);
+  });
+
+  // ── Root + health (non-probe GETs) ──
+  app.get('/', (_req: Request, res: Response) => {
+    res.json({
+      service: 'adwinner-intel',
+      mode: 'standby',
+      message: 'AdWinner Intel Standby Actor. GET /tools to discover tools, then POST to a tool path.',
+      discover: '/tools',
+      health: '/health',
+    });
+  });
+
+  app.get('/health', (_req: Request, res: Response) => {
+    res.json({
+      status: 'healthy',
+      service: 'adwinner-intel',
+      mode: 'standby',
+      actions: TOOL_REGISTRY.map((tool) => tool.action),
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  // ── Port binding (gotcha #4): always from the platform, never hardcoded. ──
+  const port = Number(
+    process.env.ACTOR_WEB_SERVER_PORT
+    || process.env.ACTOR_STANDBY_PORT
+    || process.env.PORT
+    || 3000,
+  );
+  app.listen(port, () => {
+    console.log(`[Actor] AdWinner Intel Standby server listening on port ${port}`);
+    console.log('[Actor] Discover tools: GET /tools  |  Call a tool: POST /analyze_domain_winners');
+  });
+  // NOTE: no Actor.exit() in Standby — the platform's idle timeout shuts it down.
+}
+
+/**
+ * Batch mode (the "Start" button / single-run path): read input, run one
+ * action, push the result to the dataset, charge, and exit.
+ */
+async function runBatch(): Promise<void> {
+  const input = (await Actor.getInput<Record<string, unknown>>()) || {};
+  const action = String(input.action || 'analyze_domain_winners');
+  const args = mapInputToHandlerArgs(action, input);
+
+  console.log(`[Actor] Running action: ${action}`);
+  console.log(`[Actor] Args:`, JSON.stringify(args, null, 2));
+
+  try {
+    const result = await routeAction(action, args);
+    const data = extractResult(result);
+    await Actor.pushData({ ...data, action });
+    try {
+      await Actor.charge({ eventName: EVENT_NAME_BY_ACTION[action] ?? 'analysis-completed' });
+    } catch { /* charge may not be configured */ }
+    console.log(`[Actor] Action "${action}" completed successfully`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[Actor] Action "${action}" failed:`, message);
+    await Actor.pushData({ error: message, action, success: false, timestamp: new Date().toISOString() });
+  }
+
+  await closeRedis();
+  await Actor.exit();
+}
+
 async function main() {
   await Actor.init();
 
   await ensureDatabase().catch(e => console.warn('[Actor] Appwrite DB init skipped:', e.message));
 
-  const isStandby = Actor.isAtHome() && !!process.env.ACTOR_STANDBY_PORT;
+  // Authoritative standby detection: the platform sets APIFY_META_ORIGIN=STANDBY
+  // when the Actor is invoked via its Standby URL (this also covers local
+  // `apify run --standby`). Fall back to the legacy ACTOR_STANDBY_PORT heuristic.
+  const isStandby =
+    process.env.APIFY_META_ORIGIN === 'STANDBY'
+    || (Actor.isAtHome() && !!process.env.ACTOR_STANDBY_PORT);
 
   if (isStandby) {
-    const app = express();
-    app.use(express.json());
-
-    app.post('/', async (req: Request, res: Response) => {
-      const { action, ...params } = req.body as Record<string, unknown>;
-      if (!action || typeof action !== 'string') {
-        res.status(400).json({ error: 'Missing or invalid "action" field' });
-        return;
-      }
-
-      try {
-        const result = await routeAction(action, params);
-        const data = extractResult(result);
-        await Actor.pushData({ ...data, action });
-        try { await Actor.charge({ eventName: 'analysis-completed' }); } catch { /* charge may not be configured */ }
-        res.json(data);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`[Actor] Standby action "${action}" failed:`, message);
-        res.status(500).json({ error: message });
-      }
-    });
-
-    app.get('/health', (_req: Request, res: Response) => {
-      res.json({
-        status: 'healthy',
-        service: 'adwinner-intel',
-        mode: 'standby',
-        actions: ['analyze_domain_winners', 'extract_marketing_hooks', 'get_trend_report', 'ad_profitability_score', 'get_raw_fb_ads', 'get_raw_tiktok_ads'],
-        timestamp: new Date().toISOString(),
-      });
-    });
-
-    const port = Number(process.env.ACTOR_STANDBY_PORT || process.env.PORT || 3000);
-    app.listen(port, () => {
-      console.log(`[Actor] AdWinner Intel standby server listening on port ${port}`);
-      console.log('[Actor] POST / with {"action": "analyze_domain_winners", "domain": "example.com"}');
-    });
+    await runStandbyServer();
   } else {
-    const input = (await Actor.getInput<Record<string, unknown>>()) || {};
-    const action = String(input.action || 'analyze_domain_winners');
-    const args = mapInputToHandlerArgs(action, input);
-
-    console.log(`[Actor] Running action: ${action}`);
-    console.log(`[Actor] Args:`, JSON.stringify(args, null, 2));
-
-    try {
-      const result = await routeAction(action, args);
-      const data = extractResult(result);
-      await Actor.pushData({ ...data, action });
-      try { await Actor.charge({ eventName: 'analysis-completed' }); } catch { /* charge may not be configured */ }
-      console.log(`[Actor] Action "${action}" completed successfully`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`[Actor] Action "${action}" failed:`, message);
-      await Actor.pushData({ error: message, action, success: false, timestamp: new Date().toISOString() });
-    }
-
-    await closeRedis();
-    await Actor.exit();
+    await runBatch();
   }
 }
 
