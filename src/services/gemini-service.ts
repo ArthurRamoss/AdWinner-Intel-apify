@@ -53,7 +53,7 @@ if (!isGeminiConfigured()) {
 } else {
   // Log presence + length only. NEVER log the key value itself.
   console.log(
-    `[GeminiService] GEMINI_API_KEY present (length ${GEMINI_API_KEY!.trim().length}). Model: ${process.env.GEMINI_MODEL || 'gemini-2.0-flash'}`,
+    `[GeminiService] GEMINI_API_KEY present (length ${GEMINI_API_KEY!.trim().length}). Model: ${process.env.GEMINI_MODEL || 'gemini-2.5-flash'}`,
   );
 }
 
@@ -63,7 +63,7 @@ const genAI = new GoogleGenerativeAI(GEMINI_API_KEY || '');
  * Gemini model configuration
  * Default uses a stable Gemini API model. Override via GEMINI_MODEL env.
  */
-const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 // Analyze the actual VIDEO by default (not just the static thumbnail). The hook
 // lives in the motion + audio of the first seconds, which a thumbnail misses.
 // Override with TIKTOK_ANALYSIS_MODE=thumbnail for the cheaper/faster path.
@@ -637,7 +637,7 @@ For visual-specific fields (hasFace, dominantColors, etc.), set reasonable defau
 
 Return valid JSON matching the GeminiAnalysis schema:
 {
-  "meta": { "model": "gemini-2.0-flash", "analyzedDuration": 0, "tokensUsed": 0, "latencyMs": 0 },
+  "meta": { "model": "gemini-2.5-flash", "analyzedDuration": 0, "tokensUsed": 0, "latencyMs": 0 },
   "hook": { "type": string, "description": string, "psychologyExplanation": string, "effectiveness": number },
   "painPoint": { "problem": string, "framing": string, "explicit": boolean },
   "valueProposition": { "mainBenefit": string, "secondaryBenefits": string[], "credibilityScore": number },

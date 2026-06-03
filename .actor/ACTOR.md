@@ -126,7 +126,7 @@ curl -X POST https://<standby-url>/ \
 | `SCRAPER_APIFY_TOKEN` | Recommended | Apify token used to run the FB/TikTok scraper Actors. Set this to bill scraping to a specific account, independent of where this Actor is deployed. Falls back to `APIFY_TOKEN`. |
 | `APIFY_TOKEN` | Auto | Auto-injected by the platform; used for the scrapers only if `SCRAPER_APIFY_TOKEN` is unset. |
 | `GEMINI_API_KEY` | Yes | Google Gemini API key (for AI creative analysis) |
-| `GEMINI_MODEL` | No | Gemini model name (default: `gemini-2.0-flash`) |
+| `GEMINI_MODEL` | No | Gemini model name (default: `gemini-2.5-flash`) |
 | `REDIS_URL` | No | Redis URL for caching (reduces API calls) |
 | `APPWRITE_ENDPOINT` | No | Appwrite endpoint for persistent storage |
 | `APPWRITE_PROJECT_ID` | No | Appwrite project ID |
