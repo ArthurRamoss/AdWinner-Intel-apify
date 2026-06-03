@@ -88,9 +88,11 @@ const DEFAULTS = {
   MAX_TIKTOK_POSTS: 10,
   // apidojo minimum is 10; 12 balances breadth with lower latency/cost
   TIKTOK_FETCH_POOL: 12,
-  // Keep under Context grant's 30s execution constraint
-  TIMEOUT_SECONDS: 20,
-} as const;
+  // Per-scraper-call run timeout. The old 20s (a leftover from the MCP 30s
+  // execution grant) was too tight for the Facebook path's TWO sequential calls
+  // (resolve Page ID, then fetch). Standby allows up to 5 min. Env-overridable.
+  TIMEOUT_SECONDS: Number(process.env.SCRAPER_TIMEOUT_SECONDS || '30'),
+};
 
 // curious_coder actor pricing: $0.75 per 1000 ads
 const FACEBOOK_AD_COST_PER_RESULT_USD = 0.00075;

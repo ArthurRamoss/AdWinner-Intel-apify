@@ -366,7 +366,11 @@ async function handleAnalyzeDomainWinners(args: Record<string, unknown>): Promis
         const tracker = new RequestCostTracker('analyze_domain_winners');
         // Context Protocol requires < 30s response - enforce strict limits
         const resolvedLimit = typeof limit === 'number' ? Math.min(5, Math.max(1, limit)) : 3;
-        const FETCH_TIMEOUT_MS = 20_000; // 20s max for Apify calls
+        // 70s, not 20s: the Facebook path makes TWO sequential scraper calls
+        // (resolve Page ID, then fetch ads) ~10s each, which blew past a 20s cap.
+        // Meta + TikTok fetch in parallel, so this does not add to total latency.
+        // Env-overridable.
+        const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || '70000');
         
         // Step 1: Check L1 (Redis) and L2 (Appwrite) cache in parallel
         const [redisAds, persistedAds] = await Promise.all([
@@ -602,7 +606,9 @@ async function handleAnalyzeDomainWinners(args: Record<string, unknown>): Promis
         let analysisResults: Array<AdEntity & { analysis?: GeminiAnalysis }> = enrichedWinners;
 
         if (includeAnalysis && enrichedWinners.length > 0) {
-          const maxAnalysisAds = Math.min(3, enrichedWinners.length);
+          // Deep AI analysis on the top N winners (parallel). Default 5 (was 3)
+          // for richer "what's working" data; env-overridable for cost/latency.
+          const maxAnalysisAds = Math.min(Number(process.env.MAX_ANALYSIS_ADS || '5'), enrichedWinners.length);
           const topAdsForAnalysis = (() => {
             if (platform !== 'all') {
               return enrichedWinners.slice(0, maxAnalysisAds);
