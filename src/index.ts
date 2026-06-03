@@ -33,6 +33,8 @@ import {
 import {
   analyzeAdCreative,
   normalizeGeminiAnalysis,
+  validateGeminiConnection,
+  isGeminiConfigured,
 } from './services/gemini-service.js';
 import {
   getCachedAds,
@@ -1098,6 +1100,7 @@ async function handleExtractMarketingHooks(args: Record<string, unknown>): Promi
     marketingScore: 0,
     replicationTips: ['Provide a valid, accessible video URL for analysis'],
     error: '',
+    errorCode: '',
   };
 
   try {
@@ -1146,8 +1149,13 @@ async function handleExtractMarketingHooks(args: Record<string, unknown>): Promi
     const result = await analyzeAdCreative(mockAd);
     tracker.trackGemini(1);
 
-    if (!result.analysis) {
+    // analyzeAdCreative always returns an analysis object (even the "unavailable"
+    // placeholder), so check result.success — not just result.analysis — to catch
+    // real failures (invalid API key, quota, unfetchable media) and surface the
+    // actual reason instead of a misleading success with a zeroed-out analysis.
+    if (!result.success || !result.analysis) {
       fallbackResponse.error = result.error?.message || 'Analysis unavailable';
+      fallbackResponse.errorCode = result.error?.code || 'PROCESSING_ERROR';
       return successResult(fallbackResponse);
     }
 
@@ -2065,6 +2073,21 @@ async function runStandbyServer(): Promise<void> {
       service: 'adwinner-intel',
       mode: 'standby',
       actions: TOOL_REGISTRY.map((tool) => tool.action),
+      // Cheap presence check — does NOT confirm the key works. Use /health/gemini.
+      geminiConfigured: isGeminiConfigured(),
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  // Live Gemini connectivity check. Makes ONE minimal (paid) API call, so it is
+  // deliberately separate from the cheap /health probe. Use it to confirm the
+  // GEMINI_API_KEY actually works after setting it in the Console:
+  //   curl https://<standby-url>/health/gemini
+  app.get('/health/gemini', async (_req: Request, res: Response) => {
+    const check = await validateGeminiConnection();
+    res.status(check.ok ? 200 : 503).json({
+      service: 'adwinner-intel',
+      gemini: check,
       timestamp: new Date().toISOString(),
     });
   });

@@ -39,8 +39,22 @@ import {
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-if (!GEMINI_API_KEY) {
-  console.warn('[GeminiService] GEMINI_API_KEY not set - AI analysis will fail');
+/**
+ * Whether a Gemini API key is present. This is a cheap, synchronous check — it
+ * confirms the key is set, NOT that it is valid. Use validateGeminiConnection()
+ * for a live check against the API.
+ */
+export function isGeminiConfigured(): boolean {
+  return typeof GEMINI_API_KEY === 'string' && GEMINI_API_KEY.trim().length > 0;
+}
+
+if (!isGeminiConfigured()) {
+  console.warn('[GeminiService] GEMINI_API_KEY not set — AI creative analysis will return "unavailable".');
+} else {
+  // Log presence + length only. NEVER log the key value itself.
+  console.log(
+    `[GeminiService] GEMINI_API_KEY present (length ${GEMINI_API_KEY!.trim().length}). Model: ${process.env.GEMINI_MODEL || 'gemini-2.0-flash'}`,
+  );
 }
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY || '');
@@ -671,6 +685,50 @@ Return valid JSON matching the GeminiAnalysis schema:
 }
 
 // =============================================================================
+// CONNECTIVITY VALIDATION
+// =============================================================================
+
+/**
+ * Live connectivity check for the Gemini API. Makes ONE minimal text-only call
+ * to confirm the configured GEMINI_API_KEY actually works — this catches invalid
+ * or expired keys, billing/permission problems, and "model not found" errors
+ * that a presence check (isGeminiConfigured) cannot.
+ *
+ * It does cost a few tokens, so it is meant for health checks / startup
+ * diagnostics, NOT for the per-request hot path.
+ */
+export async function validateGeminiConnection(): Promise<{
+  ok: boolean;
+  configured: boolean;
+  model: string;
+  latencyMs: number;
+  error?: string;
+}> {
+  const start = Date.now();
+  if (!isGeminiConfigured()) {
+    return { ok: false, configured: false, model: MODEL_NAME, latencyMs: 0, error: 'GEMINI_API_KEY not set' };
+  }
+  try {
+    const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+    const result = await withTimeout(
+      model.generateContent('Reply with the single word: ok'),
+      GEMINI_GENERATION_TIMEOUT_MS,
+      'gemini_validation_timeout',
+    );
+    const text = (result.response.text() || '').trim();
+    return { ok: text.length > 0, configured: true, model: MODEL_NAME, latencyMs: Date.now() - start };
+  } catch (error) {
+    return {
+      ok: false,
+      configured: true,
+      model: MODEL_NAME,
+      latencyMs: Date.now() - start,
+      error: (error as Error).message,
+    };
+  }
+}
+
+// =============================================================================
 // MAIN ANALYSIS FUNCTION
 // =============================================================================
 
@@ -784,36 +842,41 @@ export async function analyzeAdCreative(ad: AdEntity): Promise<GeminiAnalysisRes
         return await attemptTextOnlyAnalysis(model, ad, prompt, startTime);
       }
 
+      // Step 1 — fetch the media. A failure here (403, expired CDN, unsupported
+      // type) IS recoverable: fall back to text-only analysis.
+      let fallbackMedia: { data: string; mimeType: string };
       try {
-        const fallbackMedia = await fetchInlineMedia(snapshotUrl);
+        fallbackMedia = await fetchInlineMedia(snapshotUrl);
         const fallbackMime = fallbackMedia.mimeType.toLowerCase();
         if (!fallbackMime.startsWith('image/') && !fallbackMime.startsWith('video/')) {
           throw new Error(`Unsupported fallback media type: ${fallbackMedia.mimeType}`);
         }
-
-        isVideoAnalysis = fallbackMime.startsWith('video/');
-        const fallbackKind = isVideoAnalysis ? 'video' : 'image';
-
-        console.log(`[GeminiService] Analyzing fallback ${fallbackKind}: ${snapshotUrl.slice(0, 80)}...`);
-        result = await withTimeout(
-          model.generateContent([
-            prompt,
-            {
-              inlineData: {
-                mimeType: fallbackMedia.mimeType,
-                data: fallbackMedia.data,
-              },
-            },
-          ]),
-          GEMINI_GENERATION_TIMEOUT_MS,
-          'gemini_fallback_generation_timeout',
-        );
       } catch (mediaError) {
-        // Both video and image URLs failed (403, expired CDN, etc.)
-        // Fall back to text-only analysis using ad copy + context
-        console.warn(`[GeminiService] Image fallback also failed: ${(mediaError as Error).message}. Trying text-only analysis.`);
+        // Media URL itself failed (403, expired CDN, unsupported type).
+        console.warn(`[GeminiService] Media fetch failed: ${(mediaError as Error).message}. Trying text-only analysis.`);
         return await attemptTextOnlyAnalysis(model, ad, prompt, startTime);
       }
+
+      // Step 2 — call Gemini. A failure HERE (invalid API key, quota, model not
+      // found) is NOT a media problem and must NOT be masked as one. Let it
+      // propagate to the outer catch so the real error surfaces in the result
+      // instead of a misleading "no media available" message.
+      isVideoAnalysis = fallbackMedia.mimeType.toLowerCase().startsWith('video/');
+      const fallbackKind = isVideoAnalysis ? 'video' : 'image';
+      console.log(`[GeminiService] Analyzing fallback ${fallbackKind}: ${snapshotUrl.slice(0, 80)}...`);
+      result = await withTimeout(
+        model.generateContent([
+          prompt,
+          {
+            inlineData: {
+              mimeType: fallbackMedia.mimeType,
+              data: fallbackMedia.data,
+            },
+          },
+        ]),
+        GEMINI_GENERATION_TIMEOUT_MS,
+        'gemini_fallback_generation_timeout',
+      );
     }
 
     const response = result.response;
