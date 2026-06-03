@@ -107,9 +107,35 @@ const GENERATION_CONFIG = {
   temperature: 0.4, // Lower temperature for consistent, factual analysis
   topP: 0.8,
   topK: 40,
-  maxOutputTokens: 2048,
+  // gemini-2.5-flash is a "thinking" model: it spends output tokens reasoning
+  // before emitting the answer, and those count against maxOutputTokens. With a
+  // tight budget the JSON response gets truncated -> JSON.parse fails. Give
+  // generous headroom so the reasoning AND the full structured JSON both fit.
+  maxOutputTokens: 8192,
   responseMimeType: 'application/json',
 };
+
+/**
+ * Parse Gemini's response into JSON, defensively. Even with
+ * responseMimeType=application/json, a model can occasionally wrap output in
+ * markdown fences or prepend prose — strip those and extract the outermost JSON
+ * object before parsing. (Does NOT recover genuinely truncated JSON; the
+ * maxOutputTokens headroom above handles that.)
+ */
+function parseGeminiJson(raw: string): unknown {
+  let text = (raw || '').trim();
+  if (text.startsWith('```')) {
+    text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  }
+  if (!text.startsWith('{')) {
+    const first = text.indexOf('{');
+    const last = text.lastIndexOf('}');
+    if (first !== -1 && last > first) {
+      text = text.slice(first, last + 1);
+    }
+  }
+  return JSON.parse(text);
+}
 
 // =============================================================================
 // NORMALIZATION (ENUM SAFETY)
@@ -661,7 +687,7 @@ Return valid JSON matching the GeminiAnalysis schema:
 
     let analysis: GeminiAnalysis;
     try {
-      analysis = JSON.parse(text);
+      analysis = parseGeminiJson(text) as GeminiAnalysis;
     } catch {
       console.error('[GeminiService] Text-only fallback: failed to parse JSON:', text.slice(0, 300));
       return {
@@ -905,7 +931,7 @@ export async function analyzeAdCreative(ad: AdEntity): Promise<GeminiAnalysisRes
     // Parse the JSON response
     let analysis: GeminiAnalysis;
     try {
-      analysis = JSON.parse(text);
+      analysis = parseGeminiJson(text) as GeminiAnalysis;
     } catch (parseError) {
       console.error('[GeminiService] Failed to parse JSON response:', text.slice(0, 500));
       const reason = 'Failed to parse AI response as JSON';
